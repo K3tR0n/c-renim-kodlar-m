@@ -1,0 +1,55 @@
+#include <iostream>
+using namespace std;
+
+int main()
+{
+    float vize;
+    float final;
+    float sonuc;
+
+    cout << "Vize notunuzu giriniz: " << endl;
+    cin >> vize;
+
+    cout << "Final notunuzu giriniz: " << endl;
+    cin >> final;
+
+    sonuc = (vize * 0.40) + (final * 0.60);
+
+    if(sonuc >= 90)
+    {
+        cout << "Ortalama: " << sonuc << endl;
+        cout << "Harf Notu: AA" << endl;
+    }
+    else if(sonuc >= 85)
+    {
+        cout << "Ortalama: " << sonuc << endl;
+        cout << "Harf Notu: BA" << endl;
+    }
+    else if(sonuc >= 80)
+    {
+        cout << "Ortalama: " << sonuc << endl;
+        cout << "Harf Notu: BB" << endl;
+    }
+    else if(sonuc >= 70)
+    {
+        cout << "Ortalama: " << sonuc << endl;
+        cout << "Harf Notu: CB" << endl;
+    }
+    else if(sonuc >= 60)
+    {
+        cout << "Ortalama: " << sonuc << endl;
+        cout << "Harf Notu: CC" << endl;
+    }
+    else if(sonuc >= 50)
+    {
+        cout << "Ortalama: " << sonuc << endl;
+        cout << "Harf Notu: DC" << endl;
+    }
+    else
+    {
+        cout << "Ortalama: " << sonuc << endl;
+        cout << "Harf Notu: FF (Kaldiniz)" << endl;
+    }
+
+    return 0;
+}
