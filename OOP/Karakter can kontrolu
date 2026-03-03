@@ -1,0 +1,47 @@
+#include <iostream>
+#include <cstdlib>
+#include <ctime>
+using namespace std;
+
+class karakter
+{
+    private:
+    int can;
+
+    public:
+
+    int getcan()
+    {
+        return can;
+    }
+
+    void setcan(int yenican)
+    {
+        if (yenican < 0)
+            can = 0;
+        else
+            can = yenican;
+    }
+};
+
+
+int main()
+{
+    karakter oyuncu;
+    int girilencan;
+    int seçim = 1;
+    
+    do
+    {
+    cout <<"can denemesi can gir: "<<endl;
+    cin >> girilencan;
+
+    oyuncu.setcan(girilencan);
+
+    cout << "Karakter cani: " << oyuncu.getcan() << endl;
+    cout << "devam tamam?1/0";
+    cin >> seçim;
+    }
+    while(seçim == 1);
+    return 0;
+}
