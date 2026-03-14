@@ -1,0 +1,330 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <algorithm>
+#include <stdexcept>
+
+#ifdef _WIN32
+    #include <windows.h>
+    // Windows: konsolu UTF-8 yap
+    void setup_console() {
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleCP(CP_UTF8);
+    }
+#else
+    void setup_console() {}   // Linux/Mac zaten UTF-8
+#endif
+
+// ════════════════════════════════════════════════════════════════
+// Yardımcı: kısa uyku
+// ════════════════════════════════════════════════════════════════
+void sleep_ms(int ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+
+// ════════════════════════════════════════════════════════════════
+// CLASS: TurkishAlphabet
+//   Türkçe 29 harfin sırasını tutar; bir karakterin alfabe
+//   indeksini döner, alfabeyi tarar (yineleyici arayüz).
+// ════════════════════════════════════════════════════════════════
+class TurkishAlphabet {
+public:
+    static const std::vector<std::string>& letters() {
+        static const std::vector<std::string> LETTERS = {
+            "a","b","c","ç","d","e","f","g","ğ",
+            "h","ı","i","j","k","l","m","n","o","ö",
+            "p","r","s","ş","t","u","ü","v","y","z"
+        };
+        return LETTERS;
+    }
+
+    // Verilen UTF-8 karakter (küçük harf) alfabe dizisi içinde mi?
+    static bool contains(const std::string& ch) {
+        const auto& L = letters();
+        return std::find(L.begin(), L.end(), ch) != L.end();
+    }
+
+    // Verilen harfin alfabe indeksini döner (-1 = bulunamadı)
+    static int indexOf(const std::string& ch) {
+        const auto& L = letters();
+        for (int i = 0; i < (int)L.size(); ++i)
+            if (L[i] == ch) return i;
+        return -1;
+    }
+
+    // Büyük → küçük harfe çevir (Türkçe özel durumlar dahil)
+    static std::string toLower(const std::string& ch) {
+        // Türkçeye özgü büyük harf eşleştirmeleri
+        if (ch == "İ") return "i";
+        if (ch == "I") return "ı";
+        if (ch == "Ğ") return "ğ";
+        if (ch == "Ü") return "ü";
+        if (ch == "Ş") return "ş";
+        if (ch == "Ö") return "ö";
+        if (ch == "Ç") return "ç";
+        // ASCII büyük harf
+        if (ch.size() == 1 && ch[0] >= 'A' && ch[0] <= 'Z')
+            return std::string(1, (char)(ch[0] + 32));
+        return ch;
+    }
+
+    int size() const { return (int)letters().size(); }
+};
+
+// ════════════════════════════════════════════════════════════════
+// CLASS: Utf8Splitter
+//   UTF-8 string'ini tek tek grafem kümelerine (görsel karakter)
+//   ayırır. Türkçe özel harfler 2 bayttır.
+// ════════════════════════════════════════════════════════════════
+class Utf8Splitter {
+public:
+    // UTF-8 string'ini karakter listesine böl
+    static std::vector<std::string> split(const std::string& s) {
+        std::vector<std::string> result;
+        size_t i = 0;
+        while (i < s.size()) {
+            unsigned char c = (unsigned char)s[i];
+            int len = 1;
+            if      ((c & 0x80) == 0x00) len = 1;  // ASCII
+            else if ((c & 0xE0) == 0xC0) len = 2;  // 2-byte UTF-8
+            else if ((c & 0xF0) == 0xE0) len = 3;  // 3-byte UTF-8
+            else if ((c & 0xF8) == 0xF0) len = 4;  // 4-byte UTF-8
+            result.push_back(s.substr(i, len));
+            i += len;
+        }
+        return result;
+    }
+};
+
+// ════════════════════════════════════════════════════════════════
+// CLASS: TypewriterConfig
+//   Typewriter efektinin ayarlarını tutar.
+// ════════════════════════════════════════════════════════════════
+struct TypewriterConfig {
+    int scan_delay_ms   = 35;   // Tarama sırasında her harf arası (ms)
+    int land_delay_ms   = 90;   // Doğru harfe "inince" bekleme (ms)
+    int space_delay_ms  = 120;  // Boşluk/noktalama için bekleme (ms)
+    int newline_delay_ms= 400;  // Satır sonu bekleme (ms)
+    bool show_cursor    = true; // Aktif karakter konumunda imleç göster
+    std::string cursor  = "█";  // İmleç karakteri
+};
+
+// ════════════════════════════════════════════════════════════════
+// CLASS: ConsolePrinter
+//   Konsola yazma, satır silme, taşıma işlemlerini soyutlar.
+// ════════════════════════════════════════════════════════════════
+class ConsolePrinter {
+public:
+    // Aynı satırı sil ve başa dön (tarama animasyonu için)
+    static void clearLine() {
+        std::cout << "\r\033[K";
+        std::cout.flush();
+    }
+
+    // Mevcut satırı koru, yeni satıra geç
+    static void newline() {
+        std::cout << "\n";
+        std::cout.flush();
+    }
+
+    // String yazdır (flush ile)
+    static void print(const std::string& s) {
+        std::cout << s;
+        std::cout.flush();
+    }
+
+    // Renkli yazdır (ANSI)
+    // 0=normal, 32=yeşil, 33=sarı, 36=cyan, 90=gri
+    static void printColored(const std::string& s, int color) {
+        std::cout << "\033[" << color << "m" << s << "\033[0m";
+        std::cout.flush();
+    }
+};
+
+// ════════════════════════════════════════════════════════════════
+// CLASS: TypewriterEffect
+//   Ana typewriter mantığı. Verilen metni karakter karakter
+//   alfabeyi tarayarak yazar.
+// ════════════════════════════════════════════════════════════════
+class TypewriterEffect {
+private:
+    TypewriterConfig  cfg_;
+    TurkishAlphabet   alphabet_;
+    ConsolePrinter    printer_;
+
+    // Şimdiye kadar yazılmış kısım (satır bazlı)
+    std::string       written_line_;
+
+    // Bir tek alfabetik karakteri tarayarak yaz
+    void scanAndWrite(const std::string& target_ch) {
+        std::string lower_target = TurkishAlphabet::toLower(target_ch);
+        int target_idx = TurkishAlphabet::indexOf(lower_target);
+
+        if (target_idx < 0) {
+            // Alfabe dışı karakter (rakam, sembol vb.) — direkt yaz
+            written_line_ += target_ch;
+            printer_.print(target_ch);
+            sleep_ms(cfg_.land_delay_ms);
+            return;
+        }
+
+        const auto& letters = TurkishAlphabet::letters();
+
+        // a'dan hedefe kadar tara
+        for (int i = 0; i <= target_idx; ++i) {
+            // Ekrandaki mevcut satırı göster + tarama harfi
+            ConsolePrinter::clearLine();
+
+            // Yazılmış kısım (yeşil)
+            ConsolePrinter::printColored(written_line_, 32);
+
+            // Tarama harfi (sarı, büyük mü küçük mü?)
+            bool is_upper = (TurkishAlphabet::toLower(target_ch) != target_ch);
+            std::string scan_ch = is_upper ? toUpper(letters[i]) : letters[i];
+            ConsolePrinter::printColored(scan_ch, 33);
+
+            // İmleç
+            if (cfg_.show_cursor)
+                ConsolePrinter::printColored(cfg_.cursor, 90);
+
+            sleep_ms(cfg_.scan_delay_ms);
+        }
+
+        // Hedef harfe ulaşıldı — yazılmış kısma ekle
+        ConsolePrinter::clearLine();
+        written_line_ += target_ch;
+        ConsolePrinter::printColored(written_line_, 32);
+        if (cfg_.show_cursor)
+            ConsolePrinter::printColored(cfg_.cursor, 90);
+
+        sleep_ms(cfg_.land_delay_ms);
+    }
+
+    // Boşluk / noktalama / rakam / özel karakteri yaz
+    void writeSpecial(const std::string& ch) {
+        written_line_ += ch;
+        ConsolePrinter::clearLine();
+        ConsolePrinter::printColored(written_line_, 32);
+        if (cfg_.show_cursor)
+            ConsolePrinter::printColored(cfg_.cursor, 90);
+        sleep_ms(cfg_.space_delay_ms);
+    }
+
+    // Küçük harfi büyüğe çevir (Türkçe)
+    static std::string toUpper(const std::string& ch) {
+        if (ch == "i") return "İ";
+        if (ch == "ı") return "I";
+        if (ch == "ğ") return "Ğ";
+        if (ch == "ü") return "Ü";
+        if (ch == "ş") return "Ş";
+        if (ch == "ö") return "Ö";
+        if (ch == "ç") return "Ç";
+        if (ch.size() == 1 && ch[0] >= 'a' && ch[0] <= 'z')
+            return std::string(1, (char)(ch[0] - 32));
+        return ch;
+    }
+
+public:
+    explicit TypewriterEffect(const TypewriterConfig& cfg = TypewriterConfig{})
+        : cfg_(cfg) {}
+
+    // Tek satır yaz
+    void writeLine(const std::string& line) {
+        written_line_.clear();
+        auto chars = Utf8Splitter::split(line);
+
+        for (const auto& ch : chars) {
+            std::string lower = TurkishAlphabet::toLower(ch);
+
+            if (TurkishAlphabet::contains(lower)) {
+                // Alfabetik → tara
+                scanAndWrite(ch);
+            } else {
+                // Boşluk, rakam, noktalama vb.
+                writeSpecial(ch);
+            }
+        }
+
+        // Satır tamamlandı
+        ConsolePrinter::clearLine();
+        ConsolePrinter::printColored(written_line_, 32);
+        ConsolePrinter::newline();
+        sleep_ms(cfg_.newline_delay_ms);
+    }
+
+    // Çok satırlı metin yaz (satırlar '\n' ile ayrılmış)
+    void write(const std::string& text) {
+        auto lines = splitLines(text);
+        for (const auto& line : lines) {
+            writeLine(line);
+        }
+    }
+
+    // Config erişimi
+    TypewriterConfig& config() { return cfg_; }
+
+private:
+    static std::vector<std::string> splitLines(const std::string& text) {
+        std::vector<std::string> lines;
+        std::string current;
+        auto chars = Utf8Splitter::split(text);
+        for (const auto& ch : chars) {
+            if (ch == "\n") {
+                lines.push_back(current);
+                current.clear();
+            } else {
+                current += ch;
+            }
+        }
+        if (!current.empty()) lines.push_back(current);
+        return lines;
+    }
+};
+
+// ════════════════════════════════════════════════════════════════
+// main
+// ════════════════════════════════════════════════════════════════
+int main(int argc, char* argv[]) {
+    setup_console();
+
+    // Başlık
+    ConsolePrinter::printColored(
+        "\n╔══════════════════════════════════════╗\n"
+        "║   Türkçe Alfabetik Typewriter Efekti  ║\n"
+        "╚══════════════════════════════════════╝\n\n", 36);
+
+    TypewriterConfig cfg;
+    cfg.scan_delay_ms    = 30;
+    cfg.land_delay_ms    = 80;
+    cfg.space_delay_ms   = 100;
+    cfg.newline_delay_ms = 350;
+
+    TypewriterEffect tw(cfg);
+
+    // Komut satırından metin geldiyse onu yaz
+    if (argc >= 2) {
+        std::string text;
+        for (int i = 1; i < argc; ++i) {
+            if (i > 1) text += " ";
+            text += argv[i];
+        }
+        tw.write(text);
+        return 0;
+    }
+
+    // Varsayılan demo metinler
+    std::vector<std::string> demo = {
+        "Merhaba Dünya!",
+        "Türkçe karakterler: ç, ğ, ı, ö, ş, ü",
+        "C++ ile OOP öğrenmek çok eğlenceli.",
+    };
+
+    for (const auto& line : demo) {
+        tw.writeLine(line);
+    }
+
+    ConsolePrinter::printColored("\n✓ Tamamlandı.\n\n", 32);
+    return 0;
+}
